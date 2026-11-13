@@ -10,22 +10,22 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run tests/clipboard.test.ts",
+    "test": "vitest run tests/*.test.ts",
     "test:browser": "playwright test"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.119.0",
+    "lucide-react": "^1.72.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "lucide-react": "^1.72.0"
+    "trystero": "^0.27.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.1.0",
-    "@playwright/test": "^1.65.0"
+    "vitest": "^5.1.0"
   }
 }

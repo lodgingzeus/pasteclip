@@ -1,4 +1,5 @@
-export type Clip = { content: string; revision: number; updated_at: string };
+export type Clip = { content: string; revision: number; writer?: string; updated_at: string };
+export const compareClips = (a: Clip, b: Clip) => a.revision - b.revision || ((a.writer ?? '') > (b.writer ?? '') ? 1 : (a.writer ?? '') < (b.writer ?? '') ? -1 : 0);
 export type Transport = {
   read(): Promise<Clip>;
   write(content: string): Promise<Clip>;
@@ -16,7 +17,7 @@ export function createClipboard(transport: Transport, notify: (state: State) => 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const emit = () => { if (!disposed) notify({ ...state }); };
   const accept = (clip: Clip) => {
-    if (!latest || clip.revision >= latest.revision) latest = clip;
+    if (!latest || compareClips(clip, latest) >= 0) latest = clip;
     if (pending === null && !writing) {
       state.text = latest.content;
       state.updatedAt = latest.updated_at;
@@ -47,7 +48,7 @@ export function createClipboard(transport: Transport, notify: (state: State) => 
       writing = false;
       if (pending === null) pending = value;
       state.saving = false;
-      state.error = 'Your changes are not saved. Keep this page open and retry.';
+      state.error = 'Your changes could not be shared. Keep this page open and retry.';
       emit();
     }
   };

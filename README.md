@@ -1,67 +1,66 @@
 # Pasteclip
 
-One page, one shared clipboard. Paste or type text and everyone visiting the page sees it update. Copy the text, clear it, or replace it with a reply. No accounts or separate rooms.
+One page, one shared clipboard. Open the same URL on both devices, leave both pages open, and paste, copy, clear, or reply. No database, accounts, API keys, or environment variables are required.
 
-Built with React, TypeScript, Vite, and Supabase (Postgres + Realtime). Vercel serves the frontend; Supabase stores the shared text and delivers live updates across devices.
+React + TypeScript + Vite, with [Trystero](https://github.com/dmotz/trystero) connecting browsers through WebRTC. Public Nostr relays exchange connection information; clipboard text travels over peer data channels and lives only in browser memory.
 
-## Setup
+## Run locally
 
-1. Install Node.js 22.12+ and run `npm ci`.
-2. Create a Supabase project at https://supabase.com.
-3. Open its SQL Editor and run [`supabase/setup.sql`](supabase/setup.sql). This creates the single clipboard row, public read/write access, and the realtime publication.
-4. Copy `.env.example` to `.env.local` and set:
+Use Node.js 22.12+:
 
-   ```dotenv
-   VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-   VITE_SUPABASE_PUBLISHABLE_KEY=YOUR-PUBLISHABLE-KEY
-   ```
+```sh
+npm ci
+npm run dev
+```
 
-   Find these in the project's Connect dialog / API settings. A legacy anon key also works. Use only a publishable or anon key; never put a secret or service-role key in a `VITE_` variable, since those values are bundled into the browser.
-5. Run `npm run dev` and open the printed URL on two browsers. Type in one, copy in the other, then clear and reply. Reload either page to confirm persistence.
-
-Without these settings, the page displays setup guidance and disables editing. It does not pretend that browser-local data is shared.
+For cross-device testing, deploy to HTTPS and open the **same URL** on each device. WebRTC discovery uses Web Crypto, which requires a secure context; plain HTTP on a LAN IP is not sufficient. Localhost works for testing browsers on one computer.
 
 ## Deploy to Vercel
 
-1. Import `lodgingzeus/pasteclip` into Vercel.
-2. Select the **Vite** preset, with build command `npm run build` and output directory `dist`.
-3. Add both environment variables above to the appropriate Vercel environments.
-4. Deploy. If you change environment variables, redeploy because Vite embeds them at build time.
-5. Open the deployed HTTPS URL on two devices and check the paste → copy → clear → reply flow.
+1. Import `lodgingzeus/pasteclip`.
+2. Choose the **Vite** preset, build command `npm run build`, and output directory `dist`.
+3. Deploy. No database setup or environment variables are needed.
+4. Open the exact same deployed URL on both devices and wait for **Peer connected**.
+5. Paste on one device, copy on the other, then clear and reply.
 
-No custom Vercel server or WebSocket function is needed. All visitors of deployments using the same Supabase project share the same clipboard, including preview deployments. Use a separate Supabase project for isolated testing.
+Old Supabase environment variables can be removed; the app no longer reads them. It does not touch or delete any previously created Supabase data.
 
-## Behavior
+## How it behaves
 
-- Changes save automatically after a 300 ms typing pause.
-- The clipboard persists after every visitor leaves.
-- Realtime events refresh the shared row; a 10-second reconciliation and tab-focus refresh recover missed updates.
-- Writes from each client are serialized; server revisions prevent stale responses from replacing newer content.
-- Simultaneous writers use last successful write wins. This is a shared clipboard, not a collaborative document editor that merges keystrokes.
-- Failed saves retain the draft in the open tab and show a retry button. The page warns before closing with unsaved changes; drafts are not persisted locally.
-- Copy uses the browser Clipboard API on HTTPS or localhost, with manual selection as a fallback.
-- No app-imposed text length limit or input `maxlength`. Database, request, browser memory, and provider quotas still apply. Large text is fetched from the database rather than relying on realtime payload contents.
-- This clipboard is intentionally public: anyone with the URL can read, overwrite, or clear it. It has no authentication, history, moderation, or rate limiting. Do not use it for private information.
+- Text is sent after a 300 ms typing pause. Copy and clear work in both directions.
+- A new visitor receives the current clipboard from an already connected browser.
+- Text disappears once all pages holding it close or reload. Reloading one page can recover it if another remains connected.
+- With no peer connected, you can type locally. The status says **Waiting for another device**, and your text is shared when another browser connects.
+- Changes are versioned with a logical counter and a per-tab ID. Concurrent changes resolve deterministically; this does not merge simultaneous typing like a collaborative document editor.
+- Peers exchange snapshots on joining and every 10 seconds to reconcile missed updates.
+- Clipboard contents are not written to local storage, cookies, a database, or a server. Identity keys are ephemeral too.
+- There is no application text-length limit. The library chunks messages; browser memory and bandwidth still impose practical limits.
+- Every page on the same origin joins one public clipboard. Preview domains, custom domains, and localhost are separate clipboards even if they host the same build. Paths are not separate rooms.
+- Anyone on that origin can read or replace the clipboard. It is not private storage.
+
+## Connection limits
+
+This is a lightweight, best-effort peer-to-peer app. Public discovery relays and STUN servers are external dependencies even though you do not need to provision a backend. Public relay outages, blocked WebSockets, restrictive NAT/firewalls, or browser suspension can prevent devices from connecting. Keep both pages active. If it remains waiting, try a different network.
+
+No TURN relay is configured. Supporting restrictive networks reliably would require adding a TURN service or moving to a managed realtime messaging service. A **Peer connected** status means a peer data channel exists, not that every edit has been acknowledged by every device.
 
 ## Checks
 
 ```sh
 npm test
 npm run build
+npx playwright install chromium
+npm run test:browser
 ```
 
-Tests exercise two-client sharing, persistence for late visitors, clearing, retry after a failed write, write ordering, and large content using an in-memory transport. They do not replace testing against your configured Supabase project.
+`CHROME_PATH=/path/to/chrome npm run test:browser` uses an existing Chrome installation.
 
-For browser checks, run `npx playwright install chromium` once, then `npm run test:browser`. Alternatively, set `CHROME_PATH` to an existing Chrome executable. The browser test uses a simulated Supabase HTTP backend to exercise copy, clear, reply, reload, and mobile layout; it does not verify the hosted realtime service.
+Unit tests cover updates, retry behavior, large text, late joins, clearing, simultaneous edit convergence, invalid messages, and losing state after everyone leaves. The browser test uses real public discovery relays and WebRTC between separate browser contexts, so it needs internet access; it covers late join, copy, clear, replies, rejoining, large text, mobile overflow, and a fresh empty session.
 
-## Project structure
+## Files
 
-- `src/App.tsx` — clipboard UI and copy controls
-- `src/clipboard.ts` — transport-independent synchronization controller
-- `src/backend.ts` — Supabase reads, writes, and realtime subscription
-- `supabase/setup.sql` — schema, access policies, atomic write function
+- `src/App.tsx` — UI and copy controls
+- `src/clipboard.ts` — debounced writes and draft handling
+- `src/peer.ts` — in-memory snapshots and version reconciliation
+- `src/backend.ts` — WebRTC discovery and peer channel adapter
 - `src/style.css` / `ui-registry.md` — responsive styling and visual conventions
-
-The initial schema enforces one row (`id = 1`). Separate clipboard paths can be introduced later by replacing that singleton ID with room identifiers and adding routing and access policies.
-
-References: [Supabase Realtime](https://supabase.com/docs/guides/realtime/postgres-changes), [Vite](https://vite.dev/guide/).

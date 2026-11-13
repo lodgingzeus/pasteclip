@@ -20,3 +20,5 @@ Source: `src/App.tsx`, `src/style.css`.
 | Shadow | Subtle neutral card shadow |
 
 Keep the editor as the dominant surface. Use small uppercase labels sparingly, plain language, and lightweight line icons. Preserve accessible labels and keyboard focus states. Mobile uses the same visual tokens with tighter spacing.
+
+Peer-sharing update: the existing notice style explains that both pages must remain open. Green status now means an actual peer data channel is connected; waiting has neutral styling. No database setup messages remain in the interface.

@@ -1,39 +1,45 @@
 import { test, expect } from '@playwright/test';
 
-test('two visitors can paste, copy, clear, and reply; mobile has no overflow', async ({ browser }) => {
-  const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-  let clip = { content: '', revision: 0, updated_at: new Date().toISOString() };
-  await context.route('https://clipboard-test.supabase.co/rest/v1/**', async route => {
-    if (route.request().url().includes('/rpc/')) {
-      clip = { content: route.request().postDataJSON().new_content, revision: clip.revision + 1, updated_at: new Date().toISOString() };
-    }
-    await route.fulfill({ json: clip });
-  });
-  const first = await context.newPage();
-  const second = await context.newPage();
-  await first.goto('/'); await second.goto('/');
+test('real peers share text, clear, copy, rejoin, and forget after all pages close', async ({ browser }) => {
+  test.setTimeout(240000);
+  const started = Date.now();
+  const progress = (step: string) => console.log(`${step}: ${Math.round((Date.now() - started) / 1000)}s`);
+  const a = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  const b = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  const first = await a.newPage();
+  const second = await b.newPage();
+  await first.goto('/');
   const firstText = first.getByRole('textbox', { name: 'Clipboard text' });
+  await firstText.fill('Hello from device one');
+  await expect(first.getByText('Sharing…', { exact: true })).toHaveCount(0);
+  progress('first draft ready');
+  await second.goto('/');
   const secondText = second.getByRole('textbox', { name: 'Clipboard text' });
-  await firstText.fill('Hello from the first browser');
-  await expect.poll(() => clip.content).toBe('Hello from the first browser');
-  await second.evaluate(() => window.dispatchEvent(new Event('online')));
-  await expect(secondText).toHaveValue(clip.content);
+  await expect(secondText).toHaveValue('Hello from device one');
+  progress('peers connected and synced');
   await second.getByRole('button', { name: 'Copy text' }).click();
-  await expect(second.getByRole('button', { name: 'Copied!' })).toBeVisible();
-  expect(await second.evaluate(() => navigator.clipboard.readText())).toBe(clip.content);
+  expect(await second.evaluate(() => navigator.clipboard.readText())).toBe('Hello from device one');
   await second.getByRole('button', { name: 'Clear', exact: true }).click();
-  await expect.poll(() => clip.content).toBe('');
-  await first.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(firstText).toHaveValue('');
-  await secondText.fill('A reply from the second browser');
-  await expect.poll(() => clip.content).toBe('A reply from the second browser');
-  await first.evaluate(() => window.dispatchEvent(new Event('online')));
-  await expect(firstText).toHaveValue(clip.content);
+  await secondText.fill('Reply from device two');
+  await expect(firstText).toHaveValue('Reply from device two');
+  progress('copy, clear, reply passed');
   await first.reload();
-  await expect(firstText).toHaveValue(clip.content);
-  await first.screenshot({ path: '/tmp/pasteclip-desktop.png', fullPage: true });
+  await expect(firstText).toHaveValue('Reply from device two');
+  progress('rejoin passed');
+  const large = 'Text 📝 '.repeat(20000);
+  await firstText.evaluate((element, value) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    setter.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  }, large);
+  await expect.poll(async () => (await secondText.inputValue()) === large).toBe(true);
+  progress('large text passed');
   await first.setViewportSize({ width: 375, height: 812 });
   expect(await first.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await first.screenshot({ path: '/tmp/pasteclip-mobile.png', fullPage: true });
-  await context.close();
+  await a.close(); await b.close();
+  const fresh = await browser.newPage();
+  await fresh.goto('/');
+  await expect(fresh.getByRole('textbox', { name: 'Clipboard text' })).toHaveValue('');
+  await fresh.close();
 });

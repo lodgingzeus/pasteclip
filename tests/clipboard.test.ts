@@ -16,7 +16,7 @@ function backend() {
   return transport;
 }
 describe('shared clipboard', () => {
-  it('shares edits, clears, replacements, and persistent content with a later visitor', async () => {
+  it('shares edits, clears, replacements, and content with a later visitor', async () => {
     const transport = backend();
     let a!: State, b!: State, c!: State;
     const first = createClipboard(transport, value => { a = value; }, 0);
@@ -46,7 +46,7 @@ describe('shared clipboard', () => {
     client.edit('Do not lose me');
     await settle();
     expect(state.text).toBe('Do not lose me');
-    expect(state.error).toContain('not saved');
+    expect(state.error).toContain('could not be shared');
     expect(client.hasUnsaved()).toBe(true);
     transport.write = write;
     client.retry();
