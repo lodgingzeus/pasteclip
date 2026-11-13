@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { createAssembler, splitMessage } from '../src/chunks';
+import { createAssembler, splitMessage } from '../../src/features/realtime/lib/chunks';
 
 it('reassembles large Unicode text out of order without truncation', () => {
   const value = { content: '📝\n\u0000'.repeat(40000), revision: 1, writer: 'sender' };
@@ -26,8 +26,11 @@ it('expires partial transfers and never delivers partial text', () => {
     const assembler = createAssembler('receiver', receive);
     const chunks = splitMessage('x'.repeat(20000), 'sender');
     assembler.accept(chunks[0]);
-    vi.advanceTimersByTime(61000); assembler.sweep();
+    vi.advanceTimersByTime(61000);
+    assembler.sweep();
     assembler.accept(chunks[1]);
     expect(receive).not.toHaveBeenCalled();
-  } finally { vi.useRealTimers(); }
+  } finally {
+    vi.useRealTimers();
+  }
 });

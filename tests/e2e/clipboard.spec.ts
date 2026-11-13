@@ -1,15 +1,22 @@
 import { test, expect } from '@playwright/test';
 
-test('Supabase broadcasts without WebRTC share text, clear, copy, rejoin, and forget after all pages close', async ({ browser }) => {
+test('Supabase broadcasts without WebRTC share text, clear, copy, rejoin, and forget after all pages close', async ({
+  browser,
+}) => {
   test.setTimeout(240000);
   const started = Date.now();
-  const progress = (step: string) => console.log(`${step}: ${Math.round((Date.now() - started) / 1000)}s`);
+  const progress = (step: string) =>
+    console.log(`${step}: ${Math.round((Date.now() - started) / 1000)}s`);
   const a = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const b = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const first = await a.newPage();
   const second = await b.newPage();
-  await a.addInitScript(() => { Object.defineProperty(window, 'RTCPeerConnection', { value: undefined }); });
-  await b.addInitScript(() => { Object.defineProperty(window, 'RTCPeerConnection', { value: undefined }); });
+  await a.addInitScript(() => {
+    Object.defineProperty(window, 'RTCPeerConnection', { value: undefined });
+  });
+  await b.addInitScript(() => {
+    Object.defineProperty(window, 'RTCPeerConnection', { value: undefined });
+  });
   await first.goto('/');
   const firstText = first.getByRole('textbox', { name: 'Clipboard text' });
   await firstText.fill('Hello from device one');
@@ -45,22 +52,24 @@ test('Supabase broadcasts without WebRTC share text, clear, copy, rejoin, and fo
   progress('offline recovery passed');
   await first.setViewportSize({ width: 375, height: 812 });
   expect(await first.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await a.close(); await b.close();
+  await a.close();
+  await b.close();
   const fresh = await browser.newPage();
   await fresh.goto('/');
   await expect(fresh.getByRole('textbox', { name: 'Clipboard text' })).toHaveValue('');
   await fresh.close();
 });
 
-
 test('a disconnected service reports failure and reconnect keeps text', async ({ browser }) => {
   const context = await browser.newContext();
-  await context.routeWebSocket(/^wss:/, socket => socket.close());
+  await context.routeWebSocket(/^wss:/, (socket) => socket.close());
   const page = await context.newPage();
   await page.goto('/');
   const editor = page.getByRole('textbox', { name: 'Clipboard text' });
   await editor.fill('Keep this while reconnecting');
-  await expect(page.getByText('Could not connect to the sharing service.', { exact: false })).toBeVisible();
+  await expect(
+    page.getByText('Could not connect to the sharing service.', { exact: false }),
+  ).toBeVisible();
   await page.getByText('Connection details', { exact: true }).click();
   await expect(page.getByText('Sharing service: Disconnected', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();

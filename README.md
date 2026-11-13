@@ -1,8 +1,20 @@
 # Pasteclip
 
-One page, one shared clipboard. Open the same URL on both devices, leave both pages open, and paste, copy, clear, or reply.
+A live clipboard with shareable rooms. Create a room, send its link to other people, and everyone in that room can paste, copy, clear, or replace the text.
 
-React + TypeScript + Vite, using **Supabase Realtime Broadcast and Presence**. Browsers connect to Supabase over secure WebSockets rather than directly to one another. No WebRTC, STUN, TURN, public discovery relays, or database tables are used. VM NAT and different networks do not need a direct peer-to-peer path; the network must allow HTTPS/WebSockets to Supabase.
+Built with React, TypeScript, Vite, and Supabase Realtime Broadcast + Presence. **No database tables or stored room records are needed.** Each room maps to its own Broadcast channel.
+
+## Rooms
+
+- `/` keeps the original public clipboard.
+- **Create new room** generates a random UUID and opens `/room/<id>`.
+- **Copy link** gives you a shareable room URL.
+- **Join a room** accepts a room link from the same site or the full room code.
+- Any number of people can join within your Supabase project's connection quotas. The participant count shows browsers currently present in that room.
+- Different rooms have separate text and presence. Different site origins, such as preview domains and localhost, are also separate.
+- A valid room link can be opened directly or refreshed. Vercel's rewrite serves the app for `/room/*` routes.
+- Room links do not expire, but **text disappears when the last browser holding it leaves or reloads**. Reopening an empty room starts it fresh. Creating or joining another room leaves the current one; keep another tab open if you want its text to remain available.
+- Rooms are link-accessible, not authenticated private storage. Anyone with the link can read or change the text. There are no accounts, passwords, room directory, or edit history.
 
 ## Run locally
 
@@ -13,61 +25,77 @@ npm ci
 npm run dev
 ```
 
-The supplied Supabase project URL and publishable key are configured in `src/config.ts`. These are public browser settings, not database credentials. No password or secret/service-role key is included or needed. To use another project, override **both** `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`; see `.env.example`.
+The supplied Supabase project URL and publishable key are configured in `src/config/supabase.ts`. These are public browser settings, not database credentials. No database password or secret/service-role key is included or needed.
 
-The Supabase project's Realtime settings must allow public channels. No SQL, table creation, migrations, or Postgres Changes publication is required.
+To use another project, set **both** `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`; see `.env.example`. The project's Realtime settings must allow public channels. No SQL, migrations, or Postgres Changes publication is required.
 
 ## Deploy to Vercel
 
 1. Import `lodgingzeus/pasteclip`.
-2. Choose the **Vite** preset, build command `npm run build`, output directory `dist`.
-3. Deploy. The supplied public configuration is built in; additional environment variables are optional. Remove any outdated Supabase environment overrides or update both values to the current project.
-4. Refresh **both devices** after deployment; the previous WebRTC version cannot communicate with the Broadcast version.
-5. Open the exact same HTTPS URL on both devices. Connection details should show **Sharing service: Connected**, and the status becomes **Live & connected** when another browser joins.
+2. Choose **Vite**, build command `npm run build`, output directory `dist`.
+3. Deploy. The supplied public configuration is built in; environment overrides are optional. Remove outdated overrides or update both to the current project.
+4. Keep `vercel.json`: it rewrites `/room/*` requests to the app, so shared links and reloads work.
+5. Refresh both devices, create a room, and open its link on each device. The status becomes **Live & connected** when another browser joins.
 
-All browsers on the same origin share one clipboard. Different domains, preview URLs, and localhost use separate channels even if they share a Supabase project. Paths do not create separate clipboards.
+For other static hosts, configure the same history fallback for `/room/*` to `index.html`.
 
-## Behavior and data lifetime
+## Sharing and data lifetime
 
-- Changes are shared after a 300 ms typing pause; copy and clear work in both directions.
-- Each tab keeps the current text in memory. A new visitor receives it from an already-open browser.
-- Closing or reloading every browser holding the text loses it. Reloading one browser can recover the text while another stays connected.
-- No clipboard contents are written to a database, browser storage, or durable Broadcast history. Presence contains only an online marker, not clipboard text.
-- Supabase relays clipboard contents over TLS. This is not end-to-end encrypted between browsers; the service processes the messages.
-- Broadcast acknowledgments confirm receipt by the service, not that every browser has received the text. Open browsers reconcile snapshots on joining and every 10 seconds.
-- Reconnect preserves the local draft; browser network recovery also triggers reconnection. Failed sends show an error and retain the draft in the tab.
-- Concurrent edits resolve deterministically by logical revision and tab ID. This is a clipboard, not a document editor that merges keystrokes.
-- There is no application text-length limit. Large snapshots are chunked into small messages and reassembled before updating the editor. Incomplete transfers expire after 60 seconds of inactivity and can be repaired by a later snapshot. Browser memory, bandwidth, and Supabase message quotas still apply.
-- This clipboard is public. Anyone who joins its channel can read, replace, or clear text. The publishable key does not make a public channel private.
+- Edits are shared after a 300 ms typing pause. Copy and clear work in both directions.
+- Open browsers keep text in memory. New participants receive a snapshot from a browser already in their room.
+- No clipboard contents are written to a database, browser storage, or durable Broadcast history. Presence contains only an online marker.
+- Supabase relays messages over secure WebSockets. No WebRTC, STUN, TURN, or direct network path between devices is required. VM NAT can remain enabled, provided the network allows HTTPS/WebSockets to Supabase.
+- Messages travel over TLS, but are not end-to-end encrypted between browsers; Supabase processes the broadcasts.
+- Broadcast acknowledgments confirm receipt by the service, not every participant. Browsers reconcile snapshots on joining and every 10 seconds.
+- Reconnect preserves the draft. Failed sends retain text in the tab and show an error.
+- Simultaneous edits resolve deterministically using logical revisions and tab IDs. This is a shared clipboard, not a document editor that merges concurrent keystrokes.
+- There is no application text-length limit. Large text is split into messages and reassembled before updating the editor. Incomplete transfers expire after 60 seconds of inactivity; later snapshots can repair them. Browser memory, bandwidth, and Supabase quotas still apply.
 
-## Troubleshooting
+## Project structure
 
-Open **Connection details** on both devices and compare URLs. If the sharing service is disconnected, check network access and the Supabase project's availability, public-channel settings, and usage limits. Use **Reconnect** without discarding text. A VM can keep its normal NAT configuration; bridged networking is no longer required by this app's transport.
+```text
+src/
+  app/                         App routing and page composition
+  components/layout/           Shared header, footer, and page shell
+  config/                      Public Supabase configuration
+  features/
+    clipboard/
+      components/              Editor and clipboard page
+      hooks/                   React subscription lifecycle
+      lib/                     Draft controller and snapshot reconciliation
+    realtime/
+      components/              Connection status and diagnostics
+      lib/                     Broadcast message chunking
+      services/                Supabase Broadcast and Presence adapter
+      connection.ts            Connection types and messages
+    rooms/
+      components/              Create, join, and copy-link controls
+      rooms.ts                 URL parsing, room IDs, channel naming
+  styles/                      Formatted shared styles
+  main.tsx                     React entry point
 
-If the deployed page still mentions discovery relays or TURN, it is running an older build. Wait for the new Vercel deployment and hard-refresh both browsers.
+tests/
+  unit/                        State, transport, chunk, and room tests
+  e2e/                         Browser sharing and room workflows
+```
 
-## Checks
+## Checks and formatting
 
 ```sh
 npm test
 npm run build
+npm run format:check
+npm run format
 npx playwright install chromium
 npm run test:browser
 ```
 
-Use `CHROME_PATH=/path/to/chrome npm run test:browser` for an existing Chrome installation.
+Use `CHROME_PATH=/path/to/chrome npm run test:browser` with an existing Chrome installation. Prettier configuration is committed so future changes keep consistent indentation, spacing, and line wrapping.
 
-Unit tests cover synchronization, retry, concurrent edits, late joins, clearing, message chunking, malformed chunks, service errors, and state loss when everyone leaves. Browser tests use the configured real Supabase project and localhost's isolated channel, with WebRTC disabled. They verify sharing, copy, clear, replies, rejoining, large text, offline recovery, mobile layout, and a fresh empty session. A separate browser test blocks WebSockets to check error reporting and draft retention. Live tests consume a small amount of the project's Realtime quota.
+Unit tests cover synchronization, retries, concurrent edits, late joins, chunking, validation, service errors, room parsing, and channel isolation. Browser tests use the real configured Supabase project on localhost channels. They cover copy, clear, large text, offline recovery, three users contributing to one room, isolation from another room, direct links/reloads, joining by link/code, invalid links, mobile overflow, and loss of text when everyone leaves. Tests consume a small amount of Realtime quota.
 
-## Files
+## Troubleshooting
 
-- `src/App.tsx` — UI and clipboard controls
-- `src/backend.ts` — Supabase Broadcast, Presence, and connection lifecycle
-- `src/config.ts` — public client configuration
-- `src/chunks.ts` — message splitting and reassembly
-- `src/clipboard.ts` — debounced writes and draft handling
-- `src/peer.ts` — in-memory snapshots and version reconciliation
-- `src/connection.ts` — connection state and messages
-- `src/style.css` / `ui-registry.md` — responsive styling and visual conventions
+Compare the full **Room link** on each device; matching domains alone is not enough for separate rooms. Open **Connection details** to check service connectivity and other-browser count. If disconnected, check network access, Supabase availability, public-channel settings, and usage limits. **Reconnect** preserves the current text.
 
 References: [Supabase Broadcast](https://supabase.com/docs/guides/realtime/broadcast), [Supabase Presence](https://supabase.com/docs/guides/realtime/presence).
