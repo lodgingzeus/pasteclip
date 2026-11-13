@@ -1,6 +1,7 @@
 import { compareClips, type Clip, type Transport } from './clipboard';
 
 export type PeerLink = {
+  rebroadcast?: boolean;
   send(clip: Clip, target?: string): Promise<void>;
   listen(receive: (clip: unknown) => void, joined: (id: string) => void, changed: () => void): () => void;
   count(): number;
@@ -29,7 +30,7 @@ export function createPeerTransport(link: PeerLink, writer = crypto.randomUUID()
         if (compareClips(incoming, clip) > 0) {
           clip = incoming;
           onChange();
-          share();
+          if (link.rebroadcast !== false) share();
         }
       }, id => { status(); share(id); }, status);
       // Repair missed messages and synchronize peers after a suspended tab resumes.

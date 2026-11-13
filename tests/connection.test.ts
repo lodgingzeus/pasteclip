@@ -1,93 +1,77 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTransport } from '../src/backend';
-import { connectionMessage, type ConnectionInfo } from '../src/connection';
+import { type ConnectionInfo } from '../src/connection';
 
-const socket = (readyState: number) => Object.assign(new EventTarget(), { readyState });
-
-const fake = vi.hoisted(() => ({
-  onError: undefined as undefined | ((error: { code: string }) => void),
-  peers: {} as Record<string, unknown>,
-  sockets: {} as Record<string, EventTarget & { readyState: number }>,
-  reconnect: vi.fn(),
-  leave: vi.fn(),
-}));
-vi.mock('trystero', () => ({
-  getRelaySockets: () => fake.sockets,
-  setRelayConnectivity: fake.reconnect,
-  joinRoom: () => ({
-    getPeers: () => fake.peers,
-    makeAction: () => ({ send: async () => {}, onMessage: () => () => {} }),
-    onPeerJoin: () => () => {},
-    onPeerLeave: () => () => {},
-    onError: (callback: typeof fake.onError) => { fake.onError = callback; return () => { fake.onError = undefined; }; },
-    leave: fake.leave,
+const fake = vi.hoisted(() => ({ channels: [] as any[], remove: vi.fn(async () => 'ok') }));
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({
+    removeChannel: fake.remove,
+    channel(_topic: string, options: any) {
+      const channel = {
+        self: options.config.presence.key,
+        handlers: {} as Record<string, (...args: any[]) => void>,
+        state: {} as Record<string, unknown>,
+        status: (_status: string) => {},
+        on(type: string, _filter: unknown, handler: (...args: any[]) => void) { this.handlers[type] = handler; return this; },
+        subscribe(handler: (status: string) => void) { this.status = handler; return this; },
+        track: vi.fn(async () => 'ok'),
+        send: vi.fn(async () => 'ok'),
+        presenceState() { return this.state; },
+      };
+      fake.channels.push(channel);
+      return channel;
+    },
   }),
 }));
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('location', { origin: 'https://pasteclip.test' });
   vi.stubGlobal('navigator', { onLine: true });
-  vi.stubGlobal('WebSocket', { OPEN: 1 });
-  fake.sockets = {}; fake.peers = {}; fake.reconnect.mockClear();
+  vi.stubGlobal('window', new EventTarget());
+  fake.channels.length = 0; fake.remove.mockClear();
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-it('reports failure of direct WebRTC separately from relay discovery', () => {
-  fake.sockets = { relay: socket(1) };
+it('reports a subscribed service separately from other browsers', () => {
   let info!: ConnectionInfo;
   const transport = createTransport(value => { info = value; });
   const stop = transport.subscribe(() => {}, () => {});
-  fake.onError!({ code: 'peer-connect-failed' });
-  expect(info.problem).toBe('direct');
-  expect(info.relaysOnline).toBe(1);
-  expect(connectionMessage(info)).toContain('TURN relay');
-  fake.peers = { peer: {} };
-  vi.advanceTimersByTime(2000);
-  expect(info.problem).toBe(null);
+  const channel = fake.channels[0];
+  channel.status('SUBSCRIBED');
+  expect(info.serviceConnected).toBe(true);
+  expect(info.peers).toBe(0);
+  channel.state = { [channel.self]: [{}], other: [{}] };
+  channel.handlers.presence();
   expect(info.peers).toBe(1);
+  channel.state = { [channel.self]: [{}] };
+  channel.handlers.presence();
+  expect(info.peers).toBe(0);
   stop();
 });
-it('reports unreachable discovery after a timeout and retries without losing text', async () => {
+it('retains a disconnected draft and reconnects with a new subscription', async () => {
   let info!: ConnectionInfo;
   const transport = createTransport(value => { info = value; });
   const stop = transport.subscribe(() => {}, () => {});
-  await transport.write('My draft');
-  vi.advanceTimersByTime(20000);
-  expect(info.problem).toBe('discovery');
-  expect(connectionMessage(info)).toContain('Cannot reach the discovery service');
+  fake.channels[0].status('CHANNEL_ERROR');
+  await expect(transport.write('Keep my text')).rejects.toThrow('disconnected');
+  expect(info.problem).toBe('service');
   transport.reconnect!();
-  expect(fake.reconnect.mock.calls).toEqual([['online'], ['auto']]);
-  expect(info.problem).toBe(null);
-  expect((await transport.read()).content).toBe('My draft');
+  await Promise.resolve(); await Promise.resolve();
+  expect(fake.channels).toHaveLength(2);
+  fake.channels[1].status('SUBSCRIBED');
+  expect(info.serviceConnected).toBe(true);
+  expect((await transport.read()).content).toBe('Keep my text');
   stop();
-  expect(fake.onError).toBeUndefined();
   expect(vi.getTimerCount()).toBe(0);
 });
-it('reports the library’s aggregate relay failure even when sockets are open', () => {
-  fake.sockets = { healthy: socket(1), failed: socket(3) };
-  let info!: ConnectionInfo;
-  const transport = createTransport(value => { info = value; });
+it('reports failed broadcast acknowledgments rather than claiming success', async () => {
+  const transport = createTransport();
   const stop = transport.subscribe(() => {}, () => {});
-  vi.advanceTimersByTime(20000);
-  fake.onError!({ code: 'relay-failed' });
-  expect(info.problem).toBe('discovery');
-  expect(connectionMessage(info)).toContain('Cannot reach the discovery service');
-  stop();
-});
-
-it('reports relay rate limits even when the WebSocket stays open', () => {
-  const relay = socket(1);
-  fake.sockets = { relay };
-  let info!: ConnectionInfo;
-  const transport = createTransport(value => { info = value; });
-  const stop = transport.subscribe(() => {}, () => {});
-  relay.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(['NOTICE', 'Rate limit exceeded for free connections']) }));
-  expect(info.relaysOnline).toBe(1);
-  expect(info.relayWarnings).toBe(1);
-  expect(info.problem).toBe('relay-rejected');
-  expect(connectionMessage(info)).toContain('rate limit');
-  vi.advanceTimersByTime(62000);
-  expect(info.relayWarnings).toBe(0);
-  expect(info.problem).toBe(null);
+  const channel = fake.channels[0];
+  channel.status('SUBSCRIBED');
+  channel.state = { other: [{}] }; channel.handlers.presence();
+  channel.send.mockResolvedValue('timed out');
+  await expect(transport.write('Unsent')).rejects.toThrow('not acknowledged');
+  expect((await transport.read()).content).toBe('Unsent');
   stop();
 });

@@ -71,7 +71,7 @@ export function createClipboard(transport: Transport, notify: (state: State) => 
     retry() {
       state.error = '';
       try { transport.reconnect?.(); }
-      catch { state.error = 'Could not restart discovery. Keep your text and try again.'; }
+      catch { state.error = 'Could not reconnect to the sharing service. Keep your text and try again.'; }
       emit(); void refresh(); void flush();
     },
     hasUnsaved: () => pending !== null || writing,

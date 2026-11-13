@@ -1,8 +1,8 @@
 # Pasteclip
 
-One page, one shared clipboard. Open the same URL on both devices, leave both pages open, and paste, copy, clear, or reply. No database, accounts, API keys, or environment variables are required.
+One page, one shared clipboard. Open the same URL on both devices, leave both pages open, and paste, copy, clear, or reply.
 
-React + TypeScript + Vite, with [Trystero](https://github.com/dmotz/trystero) connecting browsers through WebRTC. Public Nostr relays exchange connection information; clipboard text travels over peer data channels and lives only in browser memory.
+React + TypeScript + Vite, using **Supabase Realtime Broadcast and Presence**. Browsers connect to Supabase over secure WebSockets rather than directly to one another. No WebRTC, STUN, TURN, public discovery relays, or database tables are used. VM NAT and different networks do not need a direct peer-to-peer path; the network must allow HTTPS/WebSockets to Supabase.
 
 ## Run locally
 
@@ -13,36 +13,38 @@ npm ci
 npm run dev
 ```
 
-For cross-device testing, deploy to HTTPS and open the **same URL** on each device. WebRTC discovery uses Web Crypto, which requires a secure context; plain HTTP on a LAN IP is not sufficient. Localhost works for testing browsers on one computer.
+The supplied Supabase project URL and publishable key are configured in `src/config.ts`. These are public browser settings, not database credentials. No password or secret/service-role key is included or needed. To use another project, override **both** `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`; see `.env.example`.
+
+The Supabase project's Realtime settings must allow public channels. No SQL, table creation, migrations, or Postgres Changes publication is required.
 
 ## Deploy to Vercel
 
 1. Import `lodgingzeus/pasteclip`.
-2. Choose the **Vite** preset, build command `npm run build`, and output directory `dist`.
-3. Deploy. No database setup or environment variables are needed.
-4. Open the exact same deployed URL on both devices and wait for **Peer connected**.
-5. Paste on one device, copy on the other, then clear and reply.
+2. Choose the **Vite** preset, build command `npm run build`, output directory `dist`.
+3. Deploy. The supplied public configuration is built in; additional environment variables are optional. Remove any outdated Supabase environment overrides or update both values to the current project.
+4. Refresh **both devices** after deployment; the previous WebRTC version cannot communicate with the Broadcast version.
+5. Open the exact same HTTPS URL on both devices. Connection details should show **Sharing service: Connected**, and the status becomes **Live & connected** when another browser joins.
 
-Old Supabase environment variables can be removed; the app no longer reads them. It does not touch or delete any previously created Supabase data.
+All browsers on the same origin share one clipboard. Different domains, preview URLs, and localhost use separate channels even if they share a Supabase project. Paths do not create separate clipboards.
 
-## How it behaves
+## Behavior and data lifetime
 
-- Text is sent after a 300 ms typing pause. Copy and clear work in both directions.
-- A new visitor receives the current clipboard from an already connected browser.
-- Text disappears once all pages holding it close or reload. Reloading one page can recover it if another remains connected.
-- With no peer connected, you can type locally. The status says **Waiting for another device**, and your text is shared when another browser connects.
-- Changes are versioned with a logical counter and a per-tab ID. Concurrent changes resolve deterministically; this does not merge simultaneous typing like a collaborative document editor.
-- Peers exchange snapshots on joining and every 10 seconds to reconcile missed updates.
-- Clipboard contents are not written to local storage, cookies, a database, or a server. Identity keys are ephemeral too.
-- There is no application text-length limit. The library chunks messages; browser memory and bandwidth still impose practical limits.
-- Every page on the same origin joins one public clipboard. Preview domains, custom domains, and localhost are separate clipboards even if they host the same build. Paths are not separate rooms.
-- Anyone on that origin can read or replace the clipboard. It is not private storage.
+- Changes are shared after a 300 ms typing pause; copy and clear work in both directions.
+- Each tab keeps the current text in memory. A new visitor receives it from an already-open browser.
+- Closing or reloading every browser holding the text loses it. Reloading one browser can recover the text while another stays connected.
+- No clipboard contents are written to a database, browser storage, or durable Broadcast history. Presence contains only an online marker, not clipboard text.
+- Supabase relays clipboard contents over TLS. This is not end-to-end encrypted between browsers; the service processes the messages.
+- Broadcast acknowledgments confirm receipt by the service, not that every browser has received the text. Open browsers reconcile snapshots on joining and every 10 seconds.
+- Reconnect preserves the local draft; browser network recovery also triggers reconnection. Failed sends show an error and retain the draft in the tab.
+- Concurrent edits resolve deterministically by logical revision and tab ID. This is a clipboard, not a document editor that merges keystrokes.
+- There is no application text-length limit. Large snapshots are chunked into small messages and reassembled before updating the editor. Incomplete transfers expire after 60 seconds of inactivity and can be repaired by a later snapshot. Browser memory, bandwidth, and Supabase message quotas still apply.
+- This clipboard is public. Anyone who joins its channel can read, replace, or clear text. The publishable key does not make a public channel private.
 
-## Connection limits
+## Troubleshooting
 
-This is a lightweight, best-effort peer-to-peer app. Public discovery relays and STUN servers are external dependencies even though you do not need to provision a backend. Public relay outages, blocked WebSockets, restrictive NAT/firewalls, or browser suspension can prevent devices from connecting. Keep both pages active. If it remains waiting, try a different network.
+Open **Connection details** on both devices and compare URLs. If the sharing service is disconnected, check network access and the Supabase project's availability, public-channel settings, and usage limits. Use **Reconnect** without discarding text. A VM can keep its normal NAT configuration; bridged networking is no longer required by this app's transport.
 
-No TURN relay is configured. Supporting restrictive networks reliably would require adding a TURN service or moving to a managed realtime messaging service. A **Peer connected** status means a peer data channel exists, not that every edit has been acknowledged by every device.
+If the deployed page still mentions discovery relays or TURN, it is running an older build. Wait for the new Vercel deployment and hard-refresh both browsers.
 
 ## Checks
 
@@ -53,24 +55,19 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-`CHROME_PATH=/path/to/chrome npm run test:browser` uses an existing Chrome installation.
+Use `CHROME_PATH=/path/to/chrome npm run test:browser` for an existing Chrome installation.
 
-Unit tests cover updates, retry behavior, large text, late joins, clearing, simultaneous edit convergence, invalid messages, and losing state after everyone leaves. The browser test uses real public discovery relays and WebRTC between separate browser contexts, so it needs internet access; it covers late join, copy, clear, replies, rejoining, large text, mobile overflow, and a fresh empty session.
+Unit tests cover synchronization, retry, concurrent edits, late joins, clearing, message chunking, malformed chunks, service errors, and state loss when everyone leaves. Browser tests use the configured real Supabase project and localhost's isolated channel, with WebRTC disabled. They verify sharing, copy, clear, replies, rejoining, large text, offline recovery, mobile layout, and a fresh empty session. A separate browser test blocks WebSockets to check error reporting and draft retention. Live tests consume a small amount of the project's Realtime quota.
 
 ## Files
 
-- `src/App.tsx` — UI and copy controls
+- `src/App.tsx` — UI and clipboard controls
+- `src/backend.ts` — Supabase Broadcast, Presence, and connection lifecycle
+- `src/config.ts` — public client configuration
+- `src/chunks.ts` — message splitting and reassembly
 - `src/clipboard.ts` — debounced writes and draft handling
 - `src/peer.ts` — in-memory snapshots and version reconciliation
-- `src/backend.ts` — WebRTC discovery and peer channel adapter
+- `src/connection.ts` — connection state and messages
 - `src/style.css` / `ui-registry.md` — responsive styling and visual conventions
 
-## Troubleshooting a waiting device
-
-Open **Connection details** on each device and compare the clipboard URLs. The app distinguishes unreachable discovery relays from a failed direct connection. **Retry discovery** wakes the relay connections without reloading or discarding your clipboard text.
-
-If the other device is a VirtualBox guest using NAT, try its network adapter in **Bridged Adapter** mode (where supported by the host network), then reload the page. NAT in a VM adds another translation layer and can prevent a direct WebRTC path. This is a diagnostic step, not a guaranteed fix. If direct connections still fail, add a TURN relay or use managed realtime messaging; changing to a unique notepad URL does not solve NAT traversal.
-
-See [VirtualBox networking](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/networkingdetails.html) and [Trystero connection troubleshooting](https://trystero.dev/docs/connections/).
-
-**Open sockets are not proof of working discovery.** Public Nostr relays can keep a WebSocket open while rejecting publishes or subscriptions. Connection details show the number of open sockets separately from relays that reported a rejection in the past minute. Rate-limit notices are surfaced in the page. A warning from one relay does not establish that all relays failed, nor does it prove that NAT is the cause of a missing peer.
+References: [Supabase Broadcast](https://supabase.com/docs/guides/realtime/broadcast), [Supabase Presence](https://supabase.com/docs/guides/realtime/presence).

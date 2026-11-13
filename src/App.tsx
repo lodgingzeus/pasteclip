@@ -13,7 +13,7 @@ export default function App() {
   const editor = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     try { controller.current = createClipboard(createTransport(setConnection), setState); }
-    catch { setState({ ...initial, error: 'Could not start peer sharing. Try reloading this page in a browser with WebRTC support.' }); }
+    catch { setState({ ...initial, error: 'Could not initialize sharing. Check the app configuration and reload this page.' }); }
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (controller.current?.hasUnsaved()) event.preventDefault();
     };
@@ -29,7 +29,7 @@ export default function App() {
     try { await navigator.clipboard.writeText(state.text); setFeedback('Copied to your clipboard'); }
     catch { editor.current?.focus(); editor.current?.select(); setFeedback('Text selected. Press Ctrl+C or ⌘C to copy.'); }
   }
-  const status = state.error || connection.problem ? 'Connection issue' : !state.ready ? 'Connecting…' : state.saving ? 'Sharing…' : state.connected ? 'Peer connected' : 'Waiting for another device';
+  const status = state.error || connection.problem ? 'Connection issue' : !state.ready ? 'Connecting…' : state.saving ? 'Sharing…' : state.connected ? 'Live & connected' : 'Waiting for another device';
   return <div className="app-shell">
     <header className="header"><a className="brand" href="/" aria-label="Pasteclip home"><span className="brand-icon"><Copy size={21}/></span>pasteclip<span className="beta">BETA</span></a><span className="header-note"><Globe2 size={15}/> One page. One shared clipboard.</span></header>
     <main>
@@ -37,14 +37,13 @@ export default function App() {
       {state.error && <aside className="notice error" role="alert">{state.error}<button onClick={() => controller.current ? controller.current.retry() : location.reload()}>Retry connection</button></aside>}
       <aside className={`notice ${connection.problem ? 'error' : ''}`} role="status">
         {connectionMessage(connection)}
-        {!state.connected && <button onClick={() => controller.current ? controller.current.retry() : location.reload()}>Retry discovery</button>}
+        {!state.connected && <button onClick={() => controller.current ? controller.current.retry() : location.reload()}>Reconnect</button>}
       </aside>
       <details className="notice connection-details">
         <summary>Connection details</summary>
         <p>Clipboard URL: <span>{location.origin}/</span></p>
-        <p>Discovery sockets open: {connection.relaysOnline} · Connected browsers: {connection.peers}</p>
-        <p>Relays reporting rejections in the last minute: {connection.relayWarnings}</p>
-        <p>TURN fallback: not configured</p>
+        <p>Sharing service: {connection.serviceConnected ? "Connected" : "Disconnected"} · Other browsers: {connection.peers}</p>
+        <p>Text is kept in open browsers, not a database.</p>
       </details>
       <section className="clipboard-card" aria-label="Shared clipboard">
         <div className="card-toolbar"><div className="card-title"><Clipboard size={18}/><h2>Shared clipboard</h2><span className="public-label">PUBLIC</span></div><span className={`sync-status ${state.connected && !state.error ? 'online' : ''}`} role="status"><span className="tiny-dot"/>{status}</span></div>
