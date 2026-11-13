@@ -72,3 +72,5 @@ Open **Connection details** on each device and compare the clipboard URLs. The a
 If the other device is a VirtualBox guest using NAT, try its network adapter in **Bridged Adapter** mode (where supported by the host network), then reload the page. NAT in a VM adds another translation layer and can prevent a direct WebRTC path. This is a diagnostic step, not a guaranteed fix. If direct connections still fail, add a TURN relay or use managed realtime messaging; changing to a unique notepad URL does not solve NAT traversal.
 
 See [VirtualBox networking](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/networkingdetails.html) and [Trystero connection troubleshooting](https://trystero.dev/docs/connections/).
+
+**Open sockets are not proof of working discovery.** Public Nostr relays can keep a WebSocket open while rejecting publishes or subscriptions. Connection details show the number of open sockets separately from relays that reported a rejection in the past minute. Rate-limit notices are surfaced in the page. A warning from one relay does not establish that all relays failed, nor does it prove that NAT is the cause of a missing peer.

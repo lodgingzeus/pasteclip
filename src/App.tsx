@@ -42,7 +42,8 @@ export default function App() {
       <details className="notice connection-details">
         <summary>Connection details</summary>
         <p>Clipboard URL: <span>{location.origin}/</span></p>
-        <p>Discovery relays reachable: {connection.relaysOnline} · Connected browsers: {connection.peers}</p>
+        <p>Discovery sockets open: {connection.relaysOnline} · Connected browsers: {connection.peers}</p>
+        <p>Relays reporting rejections in the last minute: {connection.relayWarnings}</p>
         <p>TURN fallback: not configured</p>
       </details>
       <section className="clipboard-card" aria-label="Shared clipboard">
