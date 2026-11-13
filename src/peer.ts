@@ -4,12 +4,14 @@ export type PeerLink = {
   send(clip: Clip, target?: string): Promise<void>;
   listen(receive: (clip: unknown) => void, joined: (id: string) => void, changed: () => void): () => void;
   count(): number;
+  reconnect?(): void;
   close(): void;
 };
 
 export function createPeerTransport(link: PeerLink, writer = crypto.randomUUID()): Transport {
   let clip: Clip = { content: '', revision: 0, writer: '', updated_at: '' };
   return {
+    reconnect: () => link.reconnect?.(),
     read: async () => ({ ...clip }),
     async write(content) {
       clip = { content, revision: clip.revision + 1, writer, updated_at: new Date().toISOString() };

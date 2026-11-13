@@ -43,3 +43,22 @@ test('real peers share text, clear, copy, rejoin, and forget after all pages clo
   await expect(fresh.getByRole('textbox', { name: 'Clipboard text' })).toHaveValue('');
   await fresh.close();
 });
+
+test('blocked discovery shows an actionable error and retry preserves the draft', async ({ browser }) => {
+  const context = await browser.newContext();
+  await context.routeWebSocket(/^wss:/, socket => socket.close());
+  const page = await context.newPage();
+  await page.clock.install();
+  await page.goto('/');
+  const editor = page.getByRole('textbox', { name: 'Clipboard text' });
+  await editor.fill('Keep this while reconnecting');
+  await page.clock.fastForward(22000);
+  await expect(page.getByText('Cannot reach the discovery service.', { exact: false })).toBeVisible();
+  await expect(page.locator('.sync-status')).toHaveText('Connection issue');
+  await page.getByText('Connection details', { exact: true }).click();
+  await expect(page.getByText('Discovery relays reachable: 0', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Retry discovery' }).click();
+  await expect(editor).toHaveValue('Keep this while reconnecting');
+  await expect(page.getByText('Cannot reach the discovery service.', { exact: false })).toHaveCount(0);
+  await context.close();
+});

@@ -1,6 +1,7 @@
 export type Clip = { content: string; revision: number; writer?: string; updated_at: string };
 export const compareClips = (a: Clip, b: Clip) => a.revision - b.revision || ((a.writer ?? '') > (b.writer ?? '') ? 1 : (a.writer ?? '') < (b.writer ?? '') ? -1 : 0);
 export type Transport = {
+  reconnect?(): void;
   read(): Promise<Clip>;
   write(content: string): Promise<Clip>;
   subscribe(onChange: () => void, onStatus: (connected: boolean) => void): () => void;
@@ -67,7 +68,12 @@ export function createClipboard(transport: Transport, notify: (state: State) => 
       clearTimeout(timer);
       timer = setTimeout(() => void flush(), delay);
     },
-    retry() { state.error = ''; emit(); void refresh(); void flush(); },
+    retry() {
+      state.error = '';
+      try { transport.reconnect?.(); }
+      catch { state.error = 'Could not restart discovery. Keep your text and try again.'; }
+      emit(); void refresh(); void flush();
+    },
     hasUnsaved: () => pending !== null || writing,
     dispose() { disposed = true; clearTimeout(timer); stop(); },
   };

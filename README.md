@@ -64,3 +64,11 @@ Unit tests cover updates, retry behavior, large text, late joins, clearing, simu
 - `src/peer.ts` — in-memory snapshots and version reconciliation
 - `src/backend.ts` — WebRTC discovery and peer channel adapter
 - `src/style.css` / `ui-registry.md` — responsive styling and visual conventions
+
+## Troubleshooting a waiting device
+
+Open **Connection details** on each device and compare the clipboard URLs. The app distinguishes unreachable discovery relays from a failed direct connection. **Retry discovery** wakes the relay connections without reloading or discarding your clipboard text.
+
+If the other device is a VirtualBox guest using NAT, try its network adapter in **Bridged Adapter** mode (where supported by the host network), then reload the page. NAT in a VM adds another translation layer and can prevent a direct WebRTC path. This is a diagnostic step, not a guaranteed fix. If direct connections still fail, add a TURN relay or use managed realtime messaging; changing to a unique notepad URL does not solve NAT traversal.
+
+See [VirtualBox networking](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/networkingdetails.html) and [Trystero connection troubleshooting](https://trystero.dev/docs/connections/).

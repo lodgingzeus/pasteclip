@@ -1,22 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Check, Clipboard, Copy, Globe2, Radio, Trash2 } from 'lucide-react';
 import { createTransport } from './backend';
+import { connectionMessage, initialConnection } from './connection';
 import { createClipboard, type State } from './clipboard';
 
 const initial: State = { text: '', ready: false, connected: false, saving: false, error: '', updatedAt: null };
 export default function App() {
   const [state, setState] = useState(initial);
   const [feedback, setFeedback] = useState('');
+  const [connection, setConnection] = useState(initialConnection);
   const controller = useRef<ReturnType<typeof createClipboard> | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    try { controller.current = createClipboard(createTransport(), setState); }
+    try { controller.current = createClipboard(createTransport(setConnection), setState); }
     catch { setState({ ...initial, error: 'Could not start peer sharing. Try reloading this page in a browser with WebRTC support.' }); }
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (controller.current?.hasUnsaved()) event.preventDefault();
     };
     window.addEventListener('beforeunload', beforeUnload);
-    return () => { controller.current?.dispose(); window.removeEventListener('beforeunload', beforeUnload); };
+    return () => { controller.current?.dispose(); controller.current = null; window.removeEventListener('beforeunload', beforeUnload); };
   }, []);
   useEffect(() => {
     if (!feedback) return;
@@ -27,13 +29,22 @@ export default function App() {
     try { await navigator.clipboard.writeText(state.text); setFeedback('Copied to your clipboard'); }
     catch { editor.current?.focus(); editor.current?.select(); setFeedback('Text selected. Press Ctrl+C or ⌘C to copy.'); }
   }
-  const status = state.error ? 'Needs attention' : !state.ready ? 'Connecting…' : state.saving ? 'Sharing…' : state.connected ? 'Peer connected' : 'Waiting for another device';
+  const status = state.error || connection.problem ? 'Connection issue' : !state.ready ? 'Connecting…' : state.saving ? 'Sharing…' : state.connected ? 'Peer connected' : 'Waiting for another device';
   return <div className="app-shell">
     <header className="header"><a className="brand" href="/" aria-label="Pasteclip home"><span className="brand-icon"><Copy size={21}/></span>pasteclip<span className="beta">BETA</span></a><span className="header-note"><Globe2 size={15}/> One page. One shared clipboard.</span></header>
     <main>
       <section className="intro"><span className="eyebrow"><span className="tiny-dot"/> A LITTLE SPACE TO SHARE</span><h1>Copy here.<br className="mobile-break"/> Paste anywhere<span className="accent">.</span></h1><p>A thought, a snippet, a link. Drop it here and pick it up on another screen.<br className="desktop-break"/> Everyone on this page sees the same thing, in real time.</p></section>
-      {state.error && <aside className="notice error" role="alert">{state.error}<button onClick={() => controller.current?.retry()}>Retry connection</button></aside>}
-      <aside className="notice" role="note">{state.connected ? "Connected directly to another browser. Keep these pages open." : "Open this same URL on your other device and wait for it to connect. If it stays waiting, try another network."}</aside>
+      {state.error && <aside className="notice error" role="alert">{state.error}<button onClick={() => controller.current ? controller.current.retry() : location.reload()}>Retry connection</button></aside>}
+      <aside className={`notice ${connection.problem ? 'error' : ''}`} role="status">
+        {connectionMessage(connection)}
+        {!state.connected && <button onClick={() => controller.current ? controller.current.retry() : location.reload()}>Retry discovery</button>}
+      </aside>
+      <details className="notice connection-details">
+        <summary>Connection details</summary>
+        <p>Clipboard URL: <span>{location.origin}/</span></p>
+        <p>Discovery relays reachable: {connection.relaysOnline} · Connected browsers: {connection.peers}</p>
+        <p>TURN fallback: not configured</p>
+      </details>
       <section className="clipboard-card" aria-label="Shared clipboard">
         <div className="card-toolbar"><div className="card-title"><Clipboard size={18}/><h2>Shared clipboard</h2><span className="public-label">PUBLIC</span></div><span className={`sync-status ${state.connected && !state.error ? 'online' : ''}`} role="status"><span className="tiny-dot"/>{status}</span></div>
         <div className="editor-wrap"><textarea ref={editor} aria-label="Clipboard text" value={state.text} onChange={(event) => controller.current?.edit(event.target.value)} disabled={!state.ready} placeholder="Paste or type something here…" spellCheck={false}/>{!state.text && <div className="empty-hint" aria-hidden="true"><span className="keyboard">⌘ V</span><span>or just start typing. Keep this page open.</span></div>}</div>
